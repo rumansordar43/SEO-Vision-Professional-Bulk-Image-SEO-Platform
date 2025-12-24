@@ -9,14 +9,6 @@ export type ExportPlatform = 'Generic' | 'Shutterstock' | 'Adobe Stock' | 'Freep
 
 export type AIProvider = 'groq' | 'openai' | 'gemini' | 'deepseek' | 'openrouter';
 
-export type AIModel = 
-  | 'llama-3.2-90b-vision-preview'
-  | 'gpt-4o-mini'
-  | 'gpt-4o'
-  | 'gemini-2.0-flash'
-  | 'deepseek-chat'
-  | 'google/gemini-2.0-flash-001';
-
 export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; description: boolean; keywords: boolean }> = {
   'Generic': { title: true, description: true, keywords: true },
   'Shutterstock': { title: true, description: true, keywords: true },

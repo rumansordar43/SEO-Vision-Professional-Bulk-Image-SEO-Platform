@@ -3,8 +3,8 @@ import { SEOData, StockConstraints, PLATFORM_FIELDS, AppSettings, AIProvider } f
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Robust Multi-Provider Engine
- * Now excludes decommissioned Groq models and prioritizes Gemini 2.0.
+ * Optimized Multi-Provider Vision Engine
+ * PRIORITY: Groq (High Speed/Rate Limit) -> Gemini -> OpenAI
  */
 export const analyzeImageWithAI = async (
   base64Data: string,
@@ -13,14 +13,13 @@ export const analyzeImageWithAI = async (
   settings: AppSettings
 ): Promise<SEOData> => {
   
-  // Strategy: Try the most reliable and active models first
+  // Updated Strategy: Groq is now the primary provider.
   const strategy: { model: string, provider: AIProvider }[] = [
-    { model: 'gemini-2.0-flash', provider: 'gemini' },
-    { model: 'llama-3.2-90b-vision-preview', provider: 'groq' },
+    { model: 'llama-3.2-90b-vision-preview', provider: 'groq' }, // Highest quality Groq Vision
+    { model: 'llama-3.2-11b-vision-preview', provider: 'groq' }, // Fastest Groq Vision
+    { model: 'gemini-2.0-flash', provider: 'gemini' },           // High reliability fallback
     { model: 'gpt-4o-mini', provider: 'openai' },
-    { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' },
-    { model: 'deepseek-chat', provider: 'deepseek' },
-    { model: 'gpt-4o', provider: 'openai' }
+    { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' }
   ];
 
   let lastError: string = "No active API keys found.";
@@ -35,15 +34,21 @@ export const analyzeImageWithAI = async (
 
       const requiredFields = PLATFORM_FIELDS[constraints.selectedPlatform];
       const promptText = `
-        TASK: Professional Stock SEO Analysis for ${constraints.selectedPlatform}.
-        STYLE: ${constraints.imageType}.
-        LIMITS: Title < ${constraints.maxTitleChars} chars, Keywords = ${constraints.keywordCount} tags.
-        EXCLUDE KEYWORDS: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
-        FORMAT: Strictly JSON object only.
-        SCHEMA: { 
-          "title": "string (descriptive, high search volume)", 
-          ${requiredFields.description ? '"description": "string (brief context)",' : ''} 
-          "keywords": ["50", "relevant", "tags", "comma", "separated"] 
+        Role: Stock Photography SEO Expert.
+        Target Platform: ${constraints.selectedPlatform}.
+        Asset Type: ${constraints.imageType}.
+        
+        Constraints:
+        - Title: Exactly between 50-100 characters.
+        - Keywords: Exactly ${constraints.keywordCount} tags.
+        - Exclusions: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
+        
+        Task: Analyze the image and provide high-converting metadata in JSON format.
+        JSON Schema:
+        {
+          "title": "string",
+          ${requiredFields.description ? '"description": "string (brief context)",' : ''}
+          "keywords": ["tag1", "tag2", ...]
         }
       `;
 
@@ -51,15 +56,16 @@ export const analyzeImageWithAI = async (
         let rawContent = "";
 
         if (step.provider === 'gemini') {
+          // Gemini SDK handles parts correctly for vision
           const ai = new GoogleGenAI({ apiKey: trimmedKey });
           const response = await ai.models.generateContent({
             model: step.model,
-            contents: [{
+            contents: {
               parts: [
                 { text: promptText },
                 { inlineData: { mimeType, data: base64Data } }
               ]
-            }],
+            },
             config: { 
               responseMimeType: "application/json",
               temperature: 0.1
@@ -68,10 +74,10 @@ export const analyzeImageWithAI = async (
           
           rawContent = response.text || "";
         } else {
+          // Standard OpenAI-compatible fetch (Groq/OpenAI/OpenRouter)
           const endpoints: Record<string, string> = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
-            deepseek: "https://api.deepseek.com/chat/completions",
             openrouter: "https://openrouter.ai/api/v1/chat/completions"
           };
 
@@ -99,55 +105,53 @@ export const analyzeImageWithAI = async (
           });
 
           if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error?.message || response.statusText);
+            const errData = await response.json().catch(() => ({}));
+            // If CORS error happens, fetch will fail before reaching here
+            throw new Error(errData.error?.message || `HTTP ${response.status}`);
           }
 
           const result = await response.json();
           rawContent = result.choices[0].message.content;
         }
 
-        if (!rawContent) throw new Error("Empty AI response");
+        if (!rawContent) throw new Error("Empty response");
 
-        // Clean potentially problematic markdown wrapper
-        const cleanedJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+        // Extract JSON from potential markdown wrapping
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        const cleanedJson = jsonMatch ? jsonMatch[0] : rawContent;
         const data = JSON.parse(cleanedJson) as SEOData;
         
         return applyPostProcessing(data, constraints);
 
       } catch (err: any) {
-        lastError = `${step.provider.toUpperCase()} [${step.model}]: ${err.message}`;
+        lastError = `${step.provider.toUpperCase()} (${step.model}): ${err.message}`;
         console.warn(`Fallback triggered: ${lastError}`);
-        // If a model is decommissioned or key is invalid, continue to next in strategy
+        // If it's a CORS error, err.message is usually "Failed to fetch"
         continue; 
       }
     }
   }
 
-  throw new Error(`Engine stopped: ${lastError}`);
+  throw new Error(`Automation Stalled: ${lastError}. Suggestion: If Groq fails with 'Failed to fetch', it is likely a CORS restriction in the browser.`);
 };
 
 const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOData => {
-  let title = data.title.trim();
+  let title = (data.title || "").trim();
   
-  // Ensure title length is respected
+  // Title cleaning & limits
   if (title.length > constraints.maxTitleChars) {
-    title = title.substring(0, constraints.maxTitleChars - 1).trim();
+    title = title.substring(0, constraints.maxTitleChars).trim();
   }
 
-  // Apply Prefix/Suffix
-  if (constraints.prefixEnabled && constraints.prefix) {
-    title = `${constraints.prefix.trim()} ${title}`;
-  }
-  if (constraints.suffixEnabled && constraints.suffix) {
-    title = `${title} ${constraints.suffix.trim()}`;
-  }
+  // Prefix/Suffix application
+  if (constraints.prefixEnabled && constraints.prefix) title = `${constraints.prefix.trim()} ${title}`;
+  if (constraints.suffixEnabled && constraints.suffix) title = `${title} ${constraints.suffix.trim()}`;
 
-  // Ensure keyword count is strictly followed
-  let keywords = data.keywords || [];
-  if (keywords.length > constraints.keywordCount) {
-    keywords = keywords.slice(0, constraints.keywordCount);
-  }
+  // Keywords formatting: unique, lowercase, trimmed
+  let keywords = Array.from(new Set(data.keywords || []))
+    .map(k => k.trim().toLowerCase())
+    .filter(k => k.length > 0)
+    .slice(0, constraints.keywordCount);
 
   return { ...data, title, keywords };
 };
