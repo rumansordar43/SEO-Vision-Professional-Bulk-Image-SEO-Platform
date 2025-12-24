@@ -66,3 +66,22 @@ export enum ProcessingStatus {
   ANALYZING = 'ANALYZING',
   COMPLETED = 'COMPLETED'
 }
+
+// Global Type Definitions for AI Studio and Environment
+declare global {
+  /* Define AIStudio interface to ensure compatibility with existing global definitions */
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    /* Use AIStudio type instead of inline object to fix property type mismatch */
+    aistudio?: AIStudio;
+  }
+  namespace NodeJS {
+    interface ProcessEnv {
+      API_KEY: string;
+    }
+  }
+}
