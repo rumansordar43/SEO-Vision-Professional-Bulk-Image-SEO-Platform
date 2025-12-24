@@ -8,10 +8,10 @@ export interface SEOData {
 export type ExportPlatform = 'Generic' | 'Shutterstock' | 'Adobe Stock' | 'Freepik' | 'Vecteezy' | 'Pond5';
 
 export type AIModel = 
-  | 'gemini-3-flash-preview' 
-  | 'gemini-3-pro-preview'
-  | 'groq-llama-3.1-70b'
-  | 'openai-gpt-4o'
+  | 'llama-3.2-11b-vision-preview'
+  | 'llama-3.2-90b-vision-preview'
+  | 'gpt-4o'
+  | 'gpt-4o-mini'
   | 'deepseek-chat'
   | 'openrouter-auto';
 
@@ -67,18 +67,7 @@ export enum ProcessingStatus {
   COMPLETED = 'COMPLETED'
 }
 
-// Global Type Definitions for AI Studio and Environment
 declare global {
-  /* Define AIStudio interface to ensure compatibility with existing global definitions */
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    /* Use AIStudio type instead of inline object to fix property type mismatch */
-    aistudio?: AIStudio;
-  }
   namespace NodeJS {
     interface ProcessEnv {
       API_KEY: string;

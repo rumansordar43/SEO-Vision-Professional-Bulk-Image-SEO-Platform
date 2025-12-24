@@ -1,18 +1,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Upload, Database, CheckCircle, AlertCircle, Trash2, Download, Zap, Layers,
-  FileSpreadsheet, X, Clock, ExternalLink, Edit2, Sliders, Settings,
-  Lock, Check, ChevronDown, Sparkles, Copy, RefreshCw, Key, Monitor, BrainCircuit,
-  Cpu, Globe, ShieldCheck, ZapOff
+  Upload, Trash2, Download, Zap, Layers,
+  X, Copy, RefreshCw, Settings, Sliders, 
+  Check, ChevronDown, Sparkles, BrainCircuit,
+  Cpu, Globe, ShieldCheck, AlertCircle, CheckCircle
 } from 'lucide-react';
 import { OptimizedImage, StockConstraints, ProcessingStatus, SEOData, ExportPlatform, PLATFORM_FIELDS, AIModel, AppSettings } from './types';
-import { analyzeStockImage } from './services/geminiService';
+import { analyzeImageWithAI } from './services/aiService';
 
 const Switch = ({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
   <button 
     onClick={() => onChange(!checked)}
-    className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'bg-teal-500' : 'bg-slate-700'}`}
+    className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'bg-orange-500' : 'bg-slate-700'}`}
   >
     <span className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
   </button>
@@ -22,39 +22,26 @@ const App: React.FC = () => {
   const [images, setImages] = useState<OptimizedImage[]>([]);
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [hasGoogleKey, setHasGoogleKey] = useState(false);
   
-  // App Settings State
+  // App Settings State - Defaulted to Groq Llama 3.2 Vision
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('seo_vision_settings');
+    const saved = localStorage.getItem('seo_vision_settings_v2');
     return saved ? JSON.parse(saved) : {
-      selectedModel: 'gemini-3-flash-preview',
+      selectedModel: 'llama-3.2-11b-vision-preview',
       keys: { groq: '', openai: '', deepseek: '', openrouter: '' }
     };
   });
 
   useEffect(() => {
-    localStorage.setItem('seo_vision_settings', JSON.stringify(appSettings));
+    localStorage.setItem('seo_vision_settings_v2', JSON.stringify(appSettings));
   }, [appSettings]);
 
-  // Check Google Key on mount
-  useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setHasGoogleKey(hasKey);
-      }
-    };
-    checkKey();
-  }, []);
-
-  // Advanced Metadata Controls State
   const [constraints, setConstraints] = useState<StockConstraints>({
     maxTitleChars: 100,
     maxDescChars: 150,
     keywordCount: 46,
     excludeKeywords: [],
-    imageType: 'None',
+    imageType: 'Photo',
     prefix: '',
     suffix: '',
     prefixEnabled: false,
@@ -67,7 +54,6 @@ const App: React.FC = () => {
     model: appSettings.selectedModel
   });
 
-  // Keep constraints in sync with settings model
   useEffect(() => {
     setConstraints(prev => ({ ...prev, model: appSettings.selectedModel }));
   }, [appSettings.selectedModel]);
@@ -90,16 +76,6 @@ const App: React.FC = () => {
     const img = images.find(i => i.id === id);
     if (!img) return;
 
-    // Check if the model is Gemini (only Gemini is supported via the provided SDK for vision here)
-    if (!constraints.model.startsWith('gemini')) {
-      setImages(prev => prev.map(i => i.id === id ? { 
-        ...i, 
-        status: 'error', 
-        error: `Model ${constraints.model} integration is pending. Please use Gemini for visual analysis.` 
-      } : i));
-      return;
-    }
-
     setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'processing' } : i));
     try {
       const reader = new FileReader();
@@ -108,23 +84,24 @@ const App: React.FC = () => {
         reader.readAsDataURL(img.file);
       });
       
-      const result = await analyzeStockImage(base64, img.file.type, constraints);
+      const result = await analyzeImageWithAI(base64, img.file.type, constraints, appSettings);
       setImages(prev => prev.map(i => i.id === id ? { 
         ...i, 
         status: 'completed', 
         seoData: result 
       } : i));
     } catch (err: any) {
-      if (err.message?.includes("API_KEY_ERROR")) {
-        setHasGoogleKey(false);
+      let errorMsg = err.message;
+      if (errorMsg.includes("MISSING_KEY")) {
+        errorMsg = "API Key missing. Go to Settings.";
       }
-      setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'error', error: err.message } : i));
+      setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'error', error: errorMsg } : i));
     }
   };
 
   const processBatch = async () => {
     setStatus(ProcessingStatus.ANALYZING);
-    const pending = images.filter(i => i.status === 'pending' || i.status === 'error' || i.status === 'processing');
+    const pending = images.filter(i => i.status === 'pending' || i.status === 'error');
     for (const img of pending) {
       await processSingle(img.id);
     }
@@ -159,44 +136,40 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `stock_export_${constraints.selectedPlatform}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `seo_export_${constraints.selectedPlatform}_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
 
-  const handleOpenGoogleKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasGoogleKey(true);
-    }
-  };
-
-  const aiBrains: { id: AIModel, name: string, provider: string, icon: any, keyField?: string }[] = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', provider: 'Google', icon: BrainCircuit },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', provider: 'Google', icon: BrainCircuit },
-    { id: 'groq-llama-3.1-70b', name: 'Llama 3.1 (70B)', provider: 'Groq', icon: Cpu, keyField: 'groq' },
-    { id: 'openai-gpt-4o', name: 'GPT-4o', provider: 'OpenAI', icon: Globe, keyField: 'openai' },
+  const aiBrains: { id: AIModel, name: string, provider: string, icon: any, keyField: keyof AppSettings['keys'] }[] = [
+    { id: 'llama-3.2-11b-vision-preview', name: 'Llama 3.2 (11B)', provider: 'Groq', icon: Cpu, keyField: 'groq' },
+    { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 (90B)', provider: 'Groq', icon: Cpu, keyField: 'groq' },
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', icon: Globe, keyField: 'openai' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI', icon: Globe, keyField: 'openai' },
     { id: 'deepseek-chat', name: 'DeepSeek V3', provider: 'DeepSeek', icon: ShieldCheck, keyField: 'deepseek' },
-    { id: 'openrouter-auto', name: 'Auto (Best Price)', provider: 'OpenRouter', icon: Sparkles, keyField: 'openrouter' },
+    { id: 'openrouter-auto', name: 'Auto Best', provider: 'OpenRouter', icon: Sparkles, keyField: 'openrouter' },
   ];
 
   const currentBrain = aiBrains.find(b => b.id === appSettings.selectedModel);
+  const hasSelectedKey = currentBrain ? !!appSettings.keys[currentBrain.keyField] : false;
 
   return (
-    <div className="flex h-screen bg-[#0d0f12] text-slate-300 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[#0a0c0f] text-slate-300 font-sans overflow-hidden">
       
-      {/* LEFT: ADVANCE METADATA CONTROLS */}
-      <aside className="w-[360px] bg-[#16191e] border-r border-[#1e2229] flex flex-col shrink-0 z-20">
-        <div className="p-5 border-b border-[#1e2229] flex items-center justify-between">
+      {/* LEFT: CONTROLS */}
+      <aside className="w-[360px] bg-[#12151a] border-r border-[#1e2229] flex flex-col shrink-0 z-20 shadow-xl">
+        <div className="p-5 border-b border-[#1e2229] flex items-center justify-between bg-[#16191e]">
           <div className="flex items-center gap-2">
-            <Sliders className="text-teal-500 w-4 h-4" />
-            <h1 className="font-bold text-sm text-slate-200 uppercase tracking-tight">Advance Metadata Controls</h1>
+            <Sliders className="text-orange-500 w-4 h-4" />
+            <h1 className="font-bold text-xs text-slate-200 uppercase tracking-widest">Metadata Engine</h1>
           </div>
-          <button className="text-[10px] bg-slate-800 text-slate-400 px-3 py-1 rounded border border-slate-700 font-bold hover:text-white transition-all">Collapse</button>
+          <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-slate-700 rounded-lg transition-colors">
+            <Settings className="w-4 h-4 text-slate-400" />
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-8 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-5 space-y-8 custom-scrollbar">
           <section>
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-4">Export Platform</label>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-4">Stock Platform</label>
             <div className="grid grid-cols-3 gap-2">
               {[
                 { id: 'Generic', icon: Sparkles },
@@ -209,23 +182,18 @@ const App: React.FC = () => {
                 <div 
                   key={plat.id} 
                   onClick={() => setConstraints({ ...constraints, selectedPlatform: plat.id as ExportPlatform })}
-                  className={`relative h-12 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${
+                  className={`relative h-12 flex items-center justify-center rounded-xl border-2 transition-all cursor-pointer ${
                     constraints.selectedPlatform === plat.id 
-                      ? 'border-teal-500 bg-teal-500/5 ring-1 ring-teal-500/30' 
+                      ? 'border-orange-500 bg-orange-500/10' 
                       : 'border-slate-800 bg-[#1a1e25] hover:border-slate-700'
                   }`}
                 >
                   {typeof plat.icon === 'string' ? (
-                    <span className={`font-bold ${constraints.selectedPlatform === plat.id ? 'text-teal-400' : 'text-slate-500'}`}>
+                    <span className={`font-black text-sm ${constraints.selectedPlatform === plat.id ? 'text-orange-400' : 'text-slate-500'}`}>
                       {plat.icon}
                     </span>
                   ) : (
-                    <plat.icon className={`w-5 h-5 ${constraints.selectedPlatform === plat.id ? 'text-teal-400' : 'text-slate-500'}`} />
-                  )}
-                  {constraints.selectedPlatform === plat.id && (
-                    <div className="absolute -top-1 -right-1 bg-teal-500 rounded-full p-0.5 shadow-lg">
-                      <Check className="w-2 h-2 text-white" />
-                    </div>
+                    <plat.icon className={`w-5 h-5 ${constraints.selectedPlatform === plat.id ? 'text-orange-400' : 'text-slate-500'}`} />
                   )}
                 </div>
               ))}
@@ -235,36 +203,26 @@ const App: React.FC = () => {
           <section className="space-y-6">
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[11px] font-bold text-slate-400">Title Length</label>
-                <span className="text-[10px] text-slate-500">{constraints.maxTitleChars} Characters</span>
+                <label className="text-[11px] font-bold text-slate-400">Title Limit</label>
+                <span className="text-[10px] text-orange-500 font-bold">{constraints.maxTitleChars}</span>
               </div>
-              <input type="range" min="30" max="200" value={constraints.maxTitleChars} onChange={e => setConstraints({...constraints, maxTitleChars: parseInt(e.target.value)})} className="w-full accent-teal-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+              <input type="range" min="30" max="200" value={constraints.maxTitleChars} onChange={e => setConstraints({...constraints, maxTitleChars: parseInt(e.target.value)})} className="w-full accent-orange-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
             </div>
             {PLATFORM_FIELDS[constraints.selectedPlatform].description && (
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="text-[11px] font-bold text-slate-400">Description Length</label>
-                  <span className="text-[10px] text-slate-500">{constraints.maxDescChars} Characters</span>
+                  <label className="text-[11px] font-bold text-slate-400">Description Limit</label>
+                  <span className="text-[10px] text-orange-500 font-bold">{constraints.maxDescChars}</span>
                 </div>
-                <input type="range" min="50" max="300" value={constraints.maxDescChars} onChange={e => setConstraints({...constraints, maxDescChars: parseInt(e.target.value)})} className="w-full accent-teal-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
+                <input type="range" min="50" max="300" value={constraints.maxDescChars} onChange={e => setConstraints({...constraints, maxDescChars: parseInt(e.target.value)})} className="w-full accent-orange-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
               </div>
             )}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[11px] font-bold text-slate-400">Keywords Count</label>
-                <span className="text-[10px] text-slate-500">{constraints.keywordCount} Keywords</span>
+                <label className="text-[11px] font-bold text-slate-400">Keywords Goal</label>
+                <span className="text-[10px] text-orange-500 font-bold">{constraints.keywordCount}</span>
               </div>
-              <input type="range" min="5" max="50" value={constraints.keywordCount} onChange={e => setConstraints({...constraints, keywordCount: parseInt(e.target.value)})} className="w-full accent-teal-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
-            </div>
-          </section>
-
-          <section>
-            <label className="text-[11px] font-bold text-slate-400 block mb-2">Image Type</label>
-            <div className="relative group">
-              <select value={constraints.imageType} onChange={(e) => setConstraints({...constraints, imageType: e.target.value as any})} className="w-full bg-[#1a1e25] border border-slate-800 rounded-lg px-4 py-2.5 text-xs text-slate-400 appearance-none focus:outline-none focus:border-teal-500 transition-all">
-                <option value="None">None</option><option value="Photo">Photo</option><option value="Vector">Vector</option><option value="Illustration">Illustration</option>
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600 pointer-events-none" />
+              <input type="range" min="5" max="50" value={constraints.keywordCount} onChange={e => setConstraints({...constraints, keywordCount: parseInt(e.target.value)})} className="w-full accent-orange-500 h-[3px] bg-slate-800 rounded-lg appearance-none cursor-pointer" />
             </div>
           </section>
 
@@ -276,110 +234,109 @@ const App: React.FC = () => {
                   <Switch checked={(constraints as any)[key + 'Enabled']} onChange={(v) => setConstraints({...constraints, [key + 'Enabled']: v})} />
                 </div>
                 {(constraints as any)[key + 'Enabled'] && (
-                  <input type="text" placeholder={`Enter ${key}...`} value={(constraints as any)[key]} onChange={(e) => setConstraints({...constraints, [key]: e.target.value})} className="w-full bg-[#0d0f12] border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 outline-none focus:border-teal-500 transition-all" />
+                  <input type="text" placeholder={`Enter text...`} value={(constraints as any)[key]} onChange={(e) => setConstraints({...constraints, [key]: e.target.value})} className="w-full bg-[#0d0f12] border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 outline-none focus:border-orange-500 transition-all" />
                 )}
               </div>
             ))}
           </section>
         </div>
 
-        <div className="p-5 border-t border-[#1e2229] space-y-3">
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="w-full bg-[#1a1e25] hover:bg-slate-800 text-slate-400 hover:text-white font-bold py-2.5 rounded-xl border border-slate-800 transition-all flex items-center justify-center gap-2"
-          >
-            <Settings className="w-4 h-4" /> Settings
-          </button>
-          <button onClick={processBatch} disabled={images.length === 0 || status === ProcessingStatus.ANALYZING} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95">
-            <Zap className={`w-4 h-4 ${status === ProcessingStatus.ANALYZING ? 'animate-spin' : ''}`} /> Generate SEO
+        <div className="p-5 border-t border-[#1e2229] bg-[#16191e]">
+          <button onClick={processBatch} disabled={images.length === 0 || status === ProcessingStatus.ANALYZING || !hasSelectedKey} className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95 group">
+            <Zap className={`w-4 h-4 ${status === ProcessingStatus.ANALYZING ? 'animate-pulse' : 'group-hover:animate-bounce'}`} /> 
+            {!hasSelectedKey ? 'Configure API First' : 'Generate Metadata'}
           </button>
         </div>
       </aside>
 
-      {/* MIDDLE: MAIN WORKSPACE */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#0d0f12] overflow-hidden">
-        <div className="p-8 border-b border-[#1e2229] bg-[#16191e]/30 flex justify-between items-center">
+      {/* MIDDLE: WORKSPACE */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0a0c0f]">
+        <header className="px-8 py-6 border-b border-[#1e2229] bg-[#12151a]/50 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold text-white">Upload Files</h2>
-            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1">Active Brain: <span className="text-teal-500">{currentBrain?.name}</span></p>
+            <h2 className="text-xl font-black text-white flex items-center gap-3">
+              Groq Vision <span className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30">Llama 3.2</span>
+            </h2>
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1">
+              Active Provider: <span className="text-orange-500">{currentBrain?.provider}</span>
+            </p>
           </div>
-          <div className="flex gap-2">
-             <div className="px-3 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700/50 flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${hasGoogleKey ? 'bg-teal-500 shadow-[0_0_8px_rgba(45,212,191,0.5)]' : 'bg-red-500 animate-pulse'}`} />
-                <span className="text-[10px] font-bold text-slate-400">Gemini {hasGoogleKey ? 'Online' : 'Offline'}</span>
+          <div className="flex gap-4">
+             <div className="px-4 py-2 bg-slate-800/40 rounded-xl border border-slate-700/50 flex items-center gap-3">
+                <div className={`w-2.5 h-2.5 rounded-full ${hasSelectedKey ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-red-500 animate-pulse'}`} />
+                <span className="text-[10px] font-bold text-slate-300 uppercase">{currentBrain?.provider} {hasSelectedKey ? 'READY' : 'KEY MISSING'}</span>
              </div>
           </div>
-        </div>
+        </header>
 
-        <div className="px-8 py-4">
-          <div onClick={() => fileInputRef.current?.click()} className="group h-44 border-2 border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-teal-500/50 transition-all bg-[#16191e]/20">
-            <div className="mb-3 p-4 bg-slate-800/20 rounded-full group-hover:scale-110 transition-transform"><Upload className="w-8 h-8 text-slate-600 group-hover:text-teal-500 transition-colors" /></div>
-            <p className="text-sm font-bold text-slate-200">Drag & drop images here, or click to browse</p>
+        <div className="px-8 py-6">
+          <div onClick={() => fileInputRef.current?.click()} className="group h-40 border-2 border-dashed border-slate-800 hover:border-orange-500/50 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all bg-[#12151a]/30">
+            <Upload className="w-10 h-10 text-slate-700 group-hover:text-orange-500 transition-colors mb-2" />
+            <p className="text-xs font-bold text-slate-400">DRAG & DROP IMAGES OR CLICK TO UPLOAD</p>
             <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleUpload} />
           </div>
         </div>
 
-        <div className="px-8 py-4 flex items-center justify-between border-b border-[#1e2229] bg-[#0d0f12]">
-          <div className="flex-1 mr-8">
-             <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden mb-2">
-                <div className="h-full bg-teal-500 transition-all duration-1000" style={{ width: images.length > 0 ? `${(images.filter(i=>i.status==='completed').length / images.length) * 100}%` : '0%' }} />
-             </div>
-             {!hasGoogleKey && appSettings.selectedModel.startsWith('gemini') && (
-               <p className="text-[11px] font-medium text-amber-500 animate-pulse">
-                 Google API key not connected. Open Settings to link your account.
-               </p>
-             )}
+        <div className="px-8 py-4 flex items-center justify-between border-b border-[#1e2229]">
+          <div className="flex gap-2">
+            <button onClick={clearAll} className="flex items-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all"><Trash2 className="w-3.5 h-3.5" /> Clear</button>
+            <button onClick={exportCSV} disabled={images.filter(i => i.status === 'completed').length === 0} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all disabled:opacity-30"><Download className="w-3.5 h-3.5" /> Export</button>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={clearAll} className="flex items-center gap-2 bg-[#ff4d4d]/10 text-[#ff4d4d] hover:bg-[#ff4d4d] hover:text-white border border-[#ff4d4d]/20 px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95"><Trash2 className="w-3.5 h-3.5" /> Clear All</button>
-            <button onClick={processBatch} disabled={images.length === 0 || status === ProcessingStatus.ANALYZING} className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 active:scale-95 shadow-lg shadow-teal-900/20"><Sparkles className="w-3.5 h-3.5" /> Optimize All</button>
-            <button onClick={exportCSV} disabled={images.filter(i => i.status === 'completed').length === 0} className="flex items-center gap-2 bg-[#1a1e25] hover:bg-slate-800 text-slate-300 border border-slate-700 px-6 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50"><Download className="w-3.5 h-3.5" /> Export CSV</button>
+          <div className="flex-1 max-w-xs mx-8">
+             <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full bg-orange-500 transition-all duration-700 shadow-[0_0_8px_rgba(249,115,22,0.4)]" style={{ width: images.length > 0 ? `${(images.filter(i=>i.status==='completed').length / images.length) * 100}%` : '0%' }} />
+             </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-6">
           {images.map(img => (
-            <div key={img.id} className={`bg-[#16191e] border rounded-2xl p-6 flex gap-8 transition-all relative ${img.status === 'completed' ? 'border-teal-500/30' : 'border-[#1e2229]'}`}>
-              <div className="w-64 shrink-0 flex flex-col">
-                <div className="relative group rounded-xl overflow-hidden border border-[#1e2229] aspect-square bg-black">
+            <div key={img.id} className={`bg-[#12151a] border-2 rounded-2xl p-6 flex gap-8 transition-all relative ${img.status === 'completed' ? 'border-orange-500/20' : 'border-slate-800'}`}>
+              <div className="w-60 shrink-0 flex flex-col">
+                <div className="relative rounded-xl overflow-hidden border border-slate-800 aspect-square bg-black shadow-2xl">
                   <img src={img.previewUrl} className="w-full h-full object-contain" alt="Preview" />
-                  <button onClick={() => setImages(images.filter(i => i.id !== img.id))} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                  {img.status === 'processing' && (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-teal-500 animate-spin" /></div>)}
+                  {img.status === 'processing' && (<div className="absolute inset-0 bg-black/70 flex items-center justify-center"><RefreshCw className="w-10 h-10 text-orange-500 animate-spin" /></div>)}
                 </div>
-                <div className="mt-4"><p className="text-[10px] font-mono text-blue-400 truncate mb-1">{img.file.name}</p></div>
-                {img.error && <p className="text-[10px] text-red-500 mt-2 bg-red-500/10 p-2 border border-red-500/20 rounded-lg">{img.error}</p>}
+                <p className="mt-3 text-[10px] font-mono text-slate-600 truncate">{img.file.name}</p>
+                {img.error && <p className="text-[10px] text-red-500 mt-2 bg-red-500/10 p-2 rounded-lg border border-red-500/20">{img.error}</p>}
               </div>
-              <div className="flex-1 flex flex-col gap-6">
+              
+              <div className="flex-1 grid grid-cols-1 gap-4">
                 {PLATFORM_FIELDS[constraints.selectedPlatform].title && (
                   <div>
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Title</label>
-                    <div className="relative"><textarea className="w-full bg-[#0d0f12] border border-[#1e2229] rounded-xl p-4 text-sm text-slate-300 outline-none min-h-[80px]" value={img.seoData?.title || ''} readOnly />
-                    <button onClick={() => copyToClipboard(img.seoData?.title || '')} className="absolute right-4 bottom-4 p-2 bg-[#1a1e25] rounded-lg text-slate-500 hover:text-teal-500 transition-all border border-slate-800"><Copy className="w-3.5 h-3.5" /></button></div>
+                    <div className="flex justify-between mb-1">
+                      <label className="text-[9px] font-black text-slate-600 uppercase">Optimized Title</label>
+                      <button onClick={() => copyToClipboard(img.seoData?.title || '')} className="text-orange-500 hover:text-orange-400 transition-colors"><Copy className="w-3 h-3" /></button>
+                    </div>
+                    <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-3 text-sm text-slate-300 min-h-[50px]">
+                      {img.seoData?.title || (img.status === 'processing' ? 'Thinking...' : '')}
+                    </div>
                   </div>
                 )}
-                {PLATFORM_FIELDS[constraints.selectedPlatform].description && (
-                  <div>
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Description</label>
-                    <div className="relative"><textarea className="w-full bg-[#0d0f12] border border-[#1e2229] rounded-xl p-4 text-sm text-slate-400 outline-none min-h-[100px]" value={img.seoData?.description || ''} readOnly />
-                    <button onClick={() => copyToClipboard(img.seoData?.description || '')} className="absolute right-4 bottom-4 p-2 bg-[#1a1e25] rounded-lg text-slate-500 hover:text-teal-500 transition-all border border-slate-800"><Copy className="w-3.5 h-3.5" /></button></div>
-                  </div>
-                )}
+                
                 {PLATFORM_FIELDS[constraints.selectedPlatform].keywords && (
                   <div>
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Keywords ({img.seoData?.keywords.length || 0})</label>
-                    <div className="relative"><textarea className="w-full bg-[#0d0f12] border border-[#1e2229] rounded-xl p-4 text-sm text-slate-400 outline-none min-h-[100px]" value={img.seoData?.keywords.join(', ') || ''} readOnly />
-                    <div className="absolute right-4 bottom-4 flex gap-2"><button onClick={() => copyToClipboard(img.seoData?.keywords.join(', ') || '')} className="p-2 bg-[#1a1e25] rounded-lg text-slate-500 hover:text-teal-500 flex items-center gap-2 border border-slate-800"><Copy className="w-3.5 h-3.5" /> <span className="text-[10px] font-bold">Copy</span></button>
-                    <button onClick={() => processSingle(img.id)} className="bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-black px-6 py-2 rounded-xl flex items-center gap-2 transition-all"><RefreshCw className={`w-3.5 h-3.5 ${img.status === 'processing' ? 'animate-spin' : ''}`} /> Regenerate</button></div></div>
+                    <div className="flex justify-between mb-1">
+                      <label className="text-[9px] font-black text-slate-600 uppercase">Keywords ({img.seoData?.keywords.length || 0})</label>
+                      <button onClick={() => copyToClipboard(img.seoData?.keywords.join(', ') || '')} className="text-orange-500 hover:text-orange-400 transition-colors"><Copy className="w-3 h-3" /></button>
+                    </div>
+                    <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-3 text-xs text-slate-400 min-h-[80px] leading-relaxed">
+                      {img.seoData?.keywords.join(', ') || (img.status === 'processing' ? 'Analyzing visual elements...' : '')}
+                    </div>
+                    {img.status === 'completed' && (
+                      <button onClick={() => processSingle(img.id)} className="mt-2 text-[10px] font-bold text-slate-500 hover:text-orange-500 flex items-center gap-1.5 transition-colors">
+                        <RefreshCw className="w-3 h-3" /> RE-GENERATE
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           ))}
           {images.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center opacity-30 select-none py-20">
-               <Layers className="w-32 h-32 mb-6" />
-               <p className="text-xl font-black uppercase tracking-widest">Workspace Empty</p>
-               <p className="text-xs font-medium text-slate-500 mt-2">Upload images to begin AI optimization</p>
+            <div className="h-full flex flex-col items-center justify-center py-20 grayscale opacity-20 select-none">
+               <Layers className="w-32 h-32 mb-4" />
+               <p className="text-2xl font-black italic tracking-tighter">STOCK SEO VISION</p>
+               <p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-widest">Powered by Groq Llama 3.2</p>
             </div>
           )}
         </div>
@@ -387,125 +344,80 @@ const App: React.FC = () => {
 
       {/* SETTINGS MODAL */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-all duration-300">
-          <div className="bg-[#16191e] border border-slate-800 w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+          <div className="bg-[#12151a] border border-slate-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-teal-500/10 rounded-lg"><Settings className="w-5 h-5 text-teal-500" /></div>
-                <div>
-                   <h2 className="text-xl font-bold text-white">Application Settings</h2>
-                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Control your AI Brains and API credentials</p>
-                </div>
+                <BrainCircuit className="w-6 h-6 text-orange-500" />
+                <h2 className="text-lg font-black text-white uppercase tracking-tight">AI Engine Settings</h2>
               </div>
-              <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+              <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X className="w-6 h-6 text-slate-500" /></button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-12 custom-scrollbar">
-              {/* AI BRAIN CONFIGURATION */}
+            <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
               <section>
-                <div className="flex items-center gap-2 mb-6">
-                  <BrainCircuit className="w-4 h-4 text-teal-500" />
-                  <h3 className="text-sm font-bold text-slate-200 uppercase tracking-widest">1. Select AI Brain</h3>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Select AI Model</h3>
+                <div className="grid grid-cols-2 gap-3">
                   {aiBrains.map(m => (
                     <div 
                       key={m.id}
                       onClick={() => setAppSettings({ ...appSettings, selectedModel: m.id })}
-                      className={`p-5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col gap-2 ${appSettings.selectedModel === m.id ? 'border-teal-500 bg-teal-500/5 ring-1 ring-teal-500/30' : 'border-slate-800 bg-[#1a1e25] hover:border-slate-700'}`}
+                      className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-4 ${appSettings.selectedModel === m.id ? 'border-orange-500 bg-orange-500/5' : 'border-slate-800 bg-[#16191e] hover:border-slate-700'}`}
                     >
-                      <div className="flex justify-between items-center">
-                        <m.icon className={`w-5 h-5 ${appSettings.selectedModel === m.id ? 'text-teal-500' : 'text-slate-500'}`} />
-                        {appSettings.selectedModel === m.id && <div className="w-4 h-4 bg-teal-500 rounded-full flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
-                      </div>
+                      <m.icon className={`w-5 h-5 ${appSettings.selectedModel === m.id ? 'text-orange-500' : 'text-slate-600'}`} />
                       <div>
-                        <p className="text-[12px] font-bold text-slate-100">{m.name}</p>
-                        <p className="text-[9px] text-slate-500 font-black uppercase tracking-tighter">{m.provider}</p>
+                        <p className="text-xs font-bold text-slate-200">{m.name}</p>
+                        <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">{m.provider}</p>
                       </div>
+                      {appSettings.selectedModel === m.id && <Check className="ml-auto w-4 h-4 text-orange-500" />}
                     </div>
                   ))}
                 </div>
               </section>
 
-              {/* DYNAMIC API KEY MANAGEMENT */}
-              <section className="space-y-6">
-                <div className="flex items-center gap-2 mb-2">
-                  <Key className="w-4 h-4 text-teal-500" />
-                  <h3 className="text-sm font-bold text-slate-200 uppercase tracking-widest">2. API Credentials</h3>
-                </div>
-                
-                {/* Always show the Google/Gemini handler if a Gemini model is active */}
-                {appSettings.selectedModel.startsWith('gemini') ? (
-                  <div className="bg-[#1a1e25] p-6 rounded-2xl border-2 border-teal-500/30 shadow-lg shadow-teal-500/5 flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-teal-500/10 rounded-2xl flex items-center justify-center font-bold text-teal-500 text-xl">G</div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-100">Google Gemini API (Active)</p>
-                          <p className={`text-[10px] font-bold uppercase ${hasGoogleKey ? 'text-teal-500' : 'text-amber-500 animate-pulse'}`}>
-                            {hasGoogleKey ? 'Connected: Securely Authenticated' : 'Action Required: Link Paid Account'}
-                          </p>
-                        </div>
-                      </div>
-                      <button onClick={handleOpenGoogleKey} className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-black uppercase px-6 py-2.5 rounded-xl transition-all shadow-lg active:scale-95">
-                        {hasGoogleKey ? 'Change API Key' : 'Connect Account'}
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed italic">
-                      Note: Vision capabilities are natively optimized for Gemini. Ensure you select a API key from a paid GCP project.
-                    </p>
-                  </div>
-                ) : (
-                  /* Show selected provider's specific key input */
-                  <div className="bg-[#1a1e25] p-6 rounded-2xl border-2 border-slate-700 space-y-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center font-bold text-slate-400 text-xl">
-                        {currentBrain?.name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-100">{currentBrain?.provider} Configuration</p>
-                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Input your individual secret key below</p>
-                      </div>
+              <section className="space-y-4">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">API Configuration</h3>
+                <div className="bg-[#16191e] p-6 rounded-2xl border-2 border-slate-800 space-y-6">
+                  {/* Priority to Groq as requested */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Groq API Key (Recommended)</label>
+                      {appSettings.keys.groq && <span className="text-[9px] text-green-500 font-black">ACTIVE</span>}
                     </div>
                     <div className="relative">
-                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
-                      <input 
-                        type="password"
-                        placeholder={`Enter your ${currentBrain?.provider} API Key...`}
-                        value={currentBrain?.keyField ? (appSettings.keys as any)[currentBrain.keyField] : ''}
-                        onChange={(e) => {
-                          if (currentBrain?.keyField) {
-                            setAppSettings({ ...appSettings, keys: { ...appSettings.keys, [currentBrain.keyField]: e.target.value } });
-                          }
-                        }}
-                        className="w-full bg-[#0d0f12] border border-slate-800 rounded-xl pl-11 pr-4 py-3.5 text-sm text-slate-300 focus:border-teal-500 outline-none transition-all placeholder:text-slate-700"
-                      />
+                       <Cpu className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-700" />
+                       <input 
+                         type="password"
+                         placeholder="Paste Groq API Key..."
+                         value={appSettings.keys.groq}
+                         onChange={(e) => setAppSettings({ ...appSettings, keys: { ...appSettings.keys, groq: e.target.value } })}
+                         className="w-full bg-[#0d0f12] border border-slate-800 rounded-xl pl-12 pr-4 py-3.5 text-sm text-slate-300 focus:border-orange-500 outline-none transition-all"
+                       />
                     </div>
+                    <p className="text-[9px] text-slate-600 italic">Groq Llama 3.2 is fast, free (for now), and highly capable at visual analysis.</p>
                   </div>
-                )}
 
-                {/* Optional: Collapse other keys toggle */}
-                <div className="pt-4 border-t border-slate-800/50">
-                   <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mb-4">Other Stored Credentials</p>
-                   <div className="grid grid-cols-2 gap-4">
-                      {aiBrains.filter(b => b.keyField && b.keyField !== currentBrain?.keyField).map(b => (
-                        <div key={b.id} className="bg-[#0d0f12] border border-slate-800/50 p-3 rounded-xl flex items-center justify-between">
-                           <div className="flex items-center gap-2">
-                              <b.icon className="w-3.5 h-3.5 text-slate-600" />
-                              <span className="text-[10px] font-bold text-slate-500">{b.provider} Key</span>
-                           </div>
-                           <div className={`w-1.5 h-1.5 rounded-full ${(appSettings.keys as any)[b.keyField!] ? 'bg-teal-900' : 'bg-slate-900'}`} />
-                        </div>
-                      ))}
-                   </div>
+                  <div className="grid grid-cols-1 gap-4 pt-4 border-t border-slate-800/50">
+                    {aiBrains.filter(b => b.provider !== 'Groq' && b.provider !== 'OpenRouter').map(b => (
+                      <div key={b.provider} className="space-y-2">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">{b.provider} Key</label>
+                        <input 
+                           type="password"
+                           placeholder={`${b.provider} Secret...`}
+                           value={(appSettings.keys as any)[b.keyField]}
+                           onChange={(e) => setAppSettings({ ...appSettings, keys: { ...appSettings.keys, [b.keyField]: e.target.value } })}
+                           className="w-full bg-[#0d0f12] border border-slate-800 rounded-xl px-4 py-3 text-xs text-slate-400 focus:border-orange-500 outline-none"
+                         />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </section>
             </div>
 
-            <div className="p-6 border-t border-slate-800 bg-[#1a1e25]/50 flex justify-end gap-3">
-              <button onClick={() => setIsSettingsOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-white transition-all">Cancel</button>
-              <button onClick={() => setIsSettingsOpen(false)} className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-10 py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-2">
-                 <CheckCircle className="w-4 h-4" /> Apply & Save Configuration
+            <div className="p-6 border-t border-slate-800 bg-[#16191e] flex justify-end gap-4">
+              <button onClick={() => setIsSettingsOpen(false)} className="bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-widest px-8 py-4 rounded-xl shadow-lg transition-all active:scale-95">
+                 Save & Initialize
               </button>
             </div>
           </div>
@@ -513,18 +425,17 @@ const App: React.FC = () => {
       )}
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e2229; border-radius: 10px; }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
         input[type=range]::-webkit-slider-thumb {
           -webkit-appearance: none;
-          height: 16px;
-          width: 16px;
+          height: 14px;
+          width: 14px;
           border-radius: 50%;
-          background: #2dd4bf;
+          background: #f97316;
           cursor: pointer;
-          box-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+          box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
         }
       `}</style>
     </div>
