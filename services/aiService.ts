@@ -3,8 +3,8 @@ import { SEOData, StockConstraints, PLATFORM_FIELDS, AppSettings, AIProvider } f
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Intelligent Multi-Provider Engine
- * Rotates through Groq, Gemini, OpenAI, DeepSeek, and OpenRouter keys.
+ * Robust Multi-Provider Engine
+ * Now excludes decommissioned Groq models and prioritizes Gemini 2.0.
  */
 export const analyzeImageWithAI = async (
   base64Data: string,
@@ -13,14 +13,13 @@ export const analyzeImageWithAI = async (
   settings: AppSettings
 ): Promise<SEOData> => {
   
-  // Strategy: Most capable/cost-effective models first
+  // Strategy: Try the most reliable and active models first
   const strategy: { model: string, provider: AIProvider }[] = [
     { model: 'gemini-2.0-flash', provider: 'gemini' },
     { model: 'llama-3.2-90b-vision-preview', provider: 'groq' },
     { model: 'gpt-4o-mini', provider: 'openai' },
-    { model: 'deepseek-chat', provider: 'deepseek' },
     { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' },
-    { model: 'llama-3.2-11b-vision-preview', provider: 'groq' },
+    { model: 'deepseek-chat', provider: 'deepseek' },
     { model: 'gpt-4o', provider: 'openai' }
   ];
 
@@ -39,20 +38,19 @@ export const analyzeImageWithAI = async (
         TASK: Professional Stock SEO Analysis for ${constraints.selectedPlatform}.
         STYLE: ${constraints.imageType}.
         LIMITS: Title < ${constraints.maxTitleChars} chars, Keywords = ${constraints.keywordCount} tags.
-        EXCLUDE: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
-        JSON SCHEMA: { 
-          "title": "string (concise, high-converting)", 
-          ${requiredFields.description ? '"description": "string (descriptive but brief)",' : ''} 
-          "keywords": ["array", "of", "strings", "relevant", "to", "stock", "photography"] 
+        EXCLUDE KEYWORDS: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
+        FORMAT: Strictly JSON object only.
+        SCHEMA: { 
+          "title": "string (descriptive, high search volume)", 
+          ${requiredFields.description ? '"description": "string (brief context)",' : ''} 
+          "keywords": ["50", "relevant", "tags", "comma", "separated"] 
         }
-        IMPORTANT: Return ONLY raw JSON. No markdown blocks.
       `;
 
       try {
         let rawContent = "";
 
         if (step.provider === 'gemini') {
-          // Gemini SDK Implementation
           const ai = new GoogleGenAI({ apiKey: trimmedKey });
           const response = await ai.models.generateContent({
             model: step.model,
@@ -64,13 +62,12 @@ export const analyzeImageWithAI = async (
             }],
             config: { 
               responseMimeType: "application/json",
-              temperature: 0.2
+              temperature: 0.1
             }
           });
           
           rawContent = response.text || "";
         } else {
-          // Standard OpenAI-Compatible Fetch for others
           const endpoints: Record<string, string> = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
@@ -112,7 +109,7 @@ export const analyzeImageWithAI = async (
 
         if (!rawContent) throw new Error("Empty AI response");
 
-        // Clean potentially problematic markdown wrapper if it exists
+        // Clean potentially problematic markdown wrapper
         const cleanedJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
         const data = JSON.parse(cleanedJson) as SEOData;
         
@@ -120,24 +117,25 @@ export const analyzeImageWithAI = async (
 
       } catch (err: any) {
         lastError = `${step.provider.toUpperCase()} [${step.model}]: ${err.message}`;
-        console.warn(`Engine Fallback - ${lastError}`);
-        // If it's a critical error like 401/429, we proceed to next key/provider
+        console.warn(`Fallback triggered: ${lastError}`);
+        // If a model is decommissioned or key is invalid, continue to next in strategy
         continue; 
       }
     }
   }
 
-  throw new Error(`All providers exhausted. Final error: ${lastError}`);
+  throw new Error(`Engine stopped: ${lastError}`);
 };
 
 const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOData => {
   let title = data.title.trim();
   
-  // Title Length Truncation safety
+  // Ensure title length is respected
   if (title.length > constraints.maxTitleChars) {
-    title = title.substring(0, constraints.maxTitleChars - 3) + "...";
+    title = title.substring(0, constraints.maxTitleChars - 1).trim();
   }
 
+  // Apply Prefix/Suffix
   if (constraints.prefixEnabled && constraints.prefix) {
     title = `${constraints.prefix.trim()} ${title}`;
   }
@@ -145,7 +143,7 @@ const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOD
     title = `${title} ${constraints.suffix.trim()}`;
   }
 
-  // Keywords count enforcement
+  // Ensure keyword count is strictly followed
   let keywords = data.keywords || [];
   if (keywords.length > constraints.keywordCount) {
     keywords = keywords.slice(0, constraints.keywordCount);

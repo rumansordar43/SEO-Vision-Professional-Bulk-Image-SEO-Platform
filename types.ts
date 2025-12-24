@@ -11,7 +11,6 @@ export type AIProvider = 'groq' | 'openai' | 'gemini' | 'deepseek' | 'openrouter
 
 export type AIModel = 
   | 'llama-3.2-90b-vision-preview'
-  | 'llama-3.2-11b-vision-preview'
   | 'gpt-4o-mini'
   | 'gpt-4o'
   | 'gemini-2.0-flash'
