@@ -1,6 +1,6 @@
 {
   "name": "SEO-Vision: Professional Bulk Image SEO Platform",
-  "description": "An AI-powered platform for photographers and eCommerce to bulk-optimize images with SEO-friendly filenames, alt text, and meta tags using Gemini.",
+  "description": "An AI-powered platform for photographers and eCommerce to bulk-optimize images with SEO-friendly filenames, alt text, and meta tags using Groq and Open Source Vision Models.",
   "requestFramePermissions": [
     "camera"
   ]

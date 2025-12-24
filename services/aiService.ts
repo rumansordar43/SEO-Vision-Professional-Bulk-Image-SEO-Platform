@@ -1,8 +1,8 @@
-
 import { SEOData, StockConstraints, PLATFORM_FIELDS, AppSettings } from "../types";
 
 /**
- * Universal service to analyze images using various AI providers via Fetch API.
+ * Universal service to analyze images using various AI providers.
+ * Optimized for Groq Llama 3.2 Vision.
  */
 export const analyzeImageWithAI = async (
   base64Data: string,
@@ -13,7 +13,6 @@ export const analyzeImageWithAI = async (
   const model = constraints.model;
   let endpoint = "";
   let apiKey = "";
-  let payload: any = {};
 
   // Determine provider configuration
   if (model.includes('llama')) {
@@ -31,23 +30,29 @@ export const analyzeImageWithAI = async (
   }
 
   if (!apiKey) {
-    throw new Error(`MISSING_KEY: API Key for ${model} is not configured in Settings.`);
+    throw new Error(`MISSING_KEY: API Key for ${model} is not configured.`);
   }
 
   const requiredFields = PLATFORM_FIELDS[constraints.selectedPlatform];
+  
+  // Refined prompt for better Groq/Llama visual intelligence
   const prompt = `
-    Analyze this commercial stock image for ${constraints.selectedPlatform}.
-    CONSTRAINTS:
-    - Title: Max ${constraints.maxTitleChars} chars. Literal and descriptive.
-    ${requiredFields.description ? `- Description: Max ${constraints.maxDescChars} chars.` : "- NO Description needed."}
-    - Keywords: Exactly ${constraints.keywordCount} relevant keywords.
-    - Image Type: ${constraints.imageType}
-    - Style: Commercial, stock-photo quality.
-    ${constraints.negWordsTitleEnabled ? `- EXCLUDE these words from Title: ${constraints.negWordsTitle}` : ""}
-    ${constraints.negKeywordsEnabled ? `- EXCLUDE these Keywords: ${constraints.negKeywords}` : ""}
+    TASK: Act as a professional Stock Photography SEO Expert. Analyze the provided image for the ${constraints.selectedPlatform} marketplace.
+    
+    VISUAL ANALYSIS REQUIREMENTS:
+    1. Identify the primary subject, environment, lighting, and mood.
+    2. Note any technical aspects (e.g., "minimalist", "top-down view", "shallow depth of field").
+    3. Determine the specific image type: ${constraints.imageType}.
 
-    IMPORTANT: Return ONLY a valid JSON object.
-    Format:
+    METADATA CONSTRAINTS:
+    - TITLE: Max ${constraints.maxTitleChars} chars. Must be literal, keyword-rich, and descriptive.
+    ${requiredFields.description ? `- DESCRIPTION: Max ${constraints.maxDescChars} chars. Describe the context and usage.` : "- NO DESCRIPTION: Do not generate a description field."}
+    - KEYWORDS: Exactly ${constraints.keywordCount} single-word or short-phrase keywords. Rank by relevance.
+    ${constraints.negWordsTitleEnabled ? `- FORBIDDEN WORDS (TITLE): ${constraints.negWordsTitle}` : ""}
+    ${constraints.negKeywordsEnabled ? `- FORBIDDEN KEYWORDS: ${constraints.negKeywords}` : ""}
+
+    OUTPUT FORMAT: Return ONLY a JSON object. No markdown, no intro.
+    JSON SCHEMA:
     {
       "title": "string",
       ${requiredFields.description ? '"description": "string",' : ''}
@@ -55,7 +60,7 @@ export const analyzeImageWithAI = async (
     }
   `;
 
-  payload = {
+  const payload = {
     model: model === 'openrouter-auto' ? 'openai/gpt-4o-mini' : model,
     messages: [
       {
@@ -72,7 +77,8 @@ export const analyzeImageWithAI = async (
       }
     ],
     response_format: { type: "json_object" },
-    temperature: 0.5
+    temperature: 0.3, // Lower temperature for more consistent stock tagging
+    max_tokens: 1024
   };
 
   try {
@@ -94,9 +100,9 @@ export const analyzeImageWithAI = async (
     const content = result.choices[0].message.content;
     const data = JSON.parse(content) as SEOData;
 
-    // Apply Prefix/Suffix logic
-    if (constraints.prefixEnabled && constraints.prefix) data.title = `${constraints.prefix} ${data.title}`;
-    if (constraints.suffixEnabled && constraints.suffix) data.title = `${data.title} ${constraints.suffix}`;
+    // Post-processing for Prefix/Suffix
+    if (constraints.prefixEnabled && constraints.prefix) data.title = `${constraints.prefix.trim()} ${data.title.trim()}`;
+    if (constraints.suffixEnabled && constraints.suffix) data.title = `${data.title.trim()} ${constraints.suffix.trim()}`;
 
     return data;
   } catch (error: any) {
