@@ -7,13 +7,12 @@ export interface SEOData {
 
 export type ExportPlatform = 'Generic' | 'Shutterstock' | 'Adobe Stock' | 'Freepik' | 'Vecteezy' | 'Pond5';
 
+// Simplified model list for internal logic
 export type AIModel = 
-  | 'llama-3.2-11b-vision-preview'
   | 'llama-3.2-90b-vision-preview'
+  | 'llama-3.2-11b-vision-preview'
   | 'gpt-4o'
-  | 'gpt-4o-mini'
-  | 'deepseek-chat'
-  | 'openrouter-auto';
+  | 'gpt-4o-mini';
 
 export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; description: boolean; keywords: boolean }> = {
   'Generic': { title: true, description: true, keywords: true },
@@ -25,12 +24,9 @@ export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; descripti
 };
 
 export interface AppSettings {
-  selectedModel: AIModel;
   keys: {
-    groq: string;
-    openai: string;
-    deepseek: string;
-    openrouter: string;
+    groq: string[]; // Supports multiple keys
+    openai: string[]; // Supports multiple keys
   };
 }
 
@@ -49,7 +45,6 @@ export interface StockConstraints {
   negWordsTitle: string;
   negKeywords: string;
   selectedPlatform: ExportPlatform;
-  model: AIModel;
 }
 
 export interface OptimizedImage {
@@ -65,12 +60,4 @@ export enum ProcessingStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
   COMPLETED = 'COMPLETED'
-}
-
-declare global {
-  namespace NodeJS {
-    interface ProcessEnv {
-      API_KEY: string;
-    }
-  }
 }
