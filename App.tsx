@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Upload, Trash2, Download, Zap, Layers,
+  Upload, Trash2, Download, Zap, 
   X, Copy, RefreshCw, Settings, Sliders, 
-  Check, Sparkles, BrainCircuit,
-  Cpu, Globe, ShieldCheck, AlertCircle, Key
+  Sparkles, BrainCircuit,
+  Cpu, Globe, ShieldCheck, AlertCircle, Key, ZapOff
 } from 'lucide-react';
 import { OptimizedImage, StockConstraints, ProcessingStatus, SEOData, ExportPlatform, PLATFORM_FIELDS, AppSettings } from './types';
 import { analyzeImageWithAI } from './services/aiService';
@@ -24,14 +24,14 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('seo_vision_settings_v4');
+    const saved = localStorage.getItem('seo_vision_settings_v5');
     return saved ? JSON.parse(saved) : {
-      keys: { groq: [], openai: [] }
+      keys: { groq: [], openai: [], gemini: [], deepseek: [], openrouter: [] }
     };
   });
 
   useEffect(() => {
-    localStorage.setItem('seo_vision_settings_v4', JSON.stringify(appSettings));
+    localStorage.setItem('seo_vision_settings_v5', JSON.stringify(appSettings));
   }, [appSettings]);
 
   const [constraints, setConstraints] = useState<StockConstraints>({
@@ -100,17 +100,13 @@ const App: React.FC = () => {
 
   const exportCSV = () => {
     const fields = PLATFORM_FIELDS[constraints.selectedPlatform];
-    const headerCols = ["Filename"];
-    if (fields.title) headerCols.push("Title");
+    const headerCols = ["Filename", "Title", "Keywords"];
     if (fields.description) headerCols.push("Description");
-    if (fields.keywords) headerCols.push("Keywords");
     const header = headerCols.join(",") + "\n";
     const rows = images.filter(i => i.seoData).map(i => {
       const d = i.seoData!;
-      const rowData = [`"${i.file.name}"`];
-      if (fields.title) rowData.push(`"${d.title.replace(/"/g, '""')}"`);
-      if (fields.description) rowData.push(`"${(d.description || "").replace(/"/g, '""')}"`);
-      if (fields.keywords) rowData.push(`"${d.keywords.join(',')}"`);
+      const rowData = [`"${i.file.name}"`, `"${d.title}"`, `"${d.keywords.join(',')}"`];
+      if (fields.description) rowData.push(`"${d.description || ""}"`);
       return rowData.join(",");
     }).join("\n");
     const blob = new Blob([header + rows], { type: 'text/csv' });
@@ -121,20 +117,21 @@ const App: React.FC = () => {
     link.click();
   };
 
-  const hasAnyKey = appSettings.keys.groq.length > 0 || appSettings.keys.openai.length > 0;
+  const totalKeys = Object.values(appSettings.keys).flat().length;
 
   return (
     <div className="flex h-screen bg-[#0a0c0f] text-slate-300 font-sans overflow-hidden">
       
-      {/* LEFT SIDEBAR: CONFIG */}
+      {/* SIDEBAR */}
       <aside className="w-[340px] bg-[#12151a] border-r border-[#1e2229] flex flex-col shrink-0 z-20 shadow-2xl">
         <div className="p-6 border-b border-[#1e2229] flex items-center justify-between bg-[#16191e]">
           <div className="flex items-center gap-2">
-            <Sparkles className="text-orange-500 w-5 h-5" />
-            <h1 className="font-black text-xs text-white uppercase tracking-widest">SEO Auto-Pilot</h1>
+            <Sparkles className="text-orange-500 w-5 h-5 animate-pulse" />
+            <h1 className="font-black text-xs text-white uppercase tracking-widest">SEO Auto-Pilot V5</h1>
           </div>
-          <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-slate-700 rounded-xl transition-all">
+          <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-slate-700 rounded-xl transition-all relative">
             <Settings className="w-4 h-4 text-slate-400" />
+            {totalKeys === 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />}
           </button>
         </div>
 
@@ -161,14 +158,14 @@ const App: React.FC = () => {
           <section className="space-y-6 pt-4 border-t border-slate-800/50">
              <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Title Length</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Title Limit</label>
                 <span className="text-[10px] text-orange-500 font-bold">{constraints.maxTitleChars}</span>
               </div>
               <input type="range" min="30" max="200" value={constraints.maxTitleChars} onChange={e => setConstraints({...constraints, maxTitleChars: parseInt(e.target.value)})} className="w-full accent-orange-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
             </div>
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Tags Count</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Tags Limit</label>
                 <span className="text-[10px] text-orange-500 font-bold">{constraints.keywordCount}</span>
               </div>
               <input type="range" min="10" max="50" value={constraints.keywordCount} onChange={e => setConstraints({...constraints, keywordCount: parseInt(e.target.value)})} className="w-full accent-orange-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer" />
@@ -193,158 +190,139 @@ const App: React.FC = () => {
         <div className="p-6 border-t border-[#1e2229] bg-[#16191e]">
           <button 
             onClick={processBatch} 
-            disabled={images.length === 0 || status === ProcessingStatus.ANALYZING || !hasAnyKey} 
+            disabled={images.length === 0 || status === ProcessingStatus.ANALYZING || totalKeys === 0} 
             className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-4 rounded-xl shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 group"
           >
             <Zap className={`w-5 h-5 ${status === ProcessingStatus.ANALYZING ? 'animate-pulse' : 'group-hover:animate-bounce'}`} /> 
-            {!hasAnyKey ? 'SET API KEYS' : 'START BULK SEO'}
+            {totalKeys === 0 ? 'CONFIGURE KEYS' : 'GENERATE SEO DATA'}
           </button>
         </div>
       </aside>
 
-      {/* MAIN VIEW */}
+      {/* MAIN */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#0a0c0f]">
         <header className="px-10 py-8 border-b border-[#1e2229] bg-[#12151a]/30 flex justify-between items-center">
           <div>
             <h2 className="text-2xl font-black text-white flex items-center gap-4">
-              AI Vision Engine <span className="text-[10px] bg-green-500/20 text-green-400 px-3 py-1 rounded-full border border-green-500/30 font-bold uppercase">Smart Fallback Enabled</span>
+              Visual AI Console <span className="text-[10px] bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 font-bold uppercase tracking-widest">Multi-Provider Mode</span>
             </h2>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-2">
-              Automatically rotating through {appSettings.keys.groq.length + appSettings.keys.openai.length} API Keys
+              Ready with <span className="text-white">{totalKeys}</span> active keys across 5 AI providers
             </p>
-          </div>
-          <div className="flex gap-3">
-             <div className="px-5 py-2.5 bg-slate-800/40 rounded-2xl border border-slate-700/50 flex items-center gap-4">
-                <div className={`w-3 h-3 rounded-full ${hasAnyKey ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]' : 'bg-red-500 animate-ping'}`} />
-                <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">{hasAnyKey ? 'SYSTEM ACTIVE' : 'KEYS REQUIRED'}</span>
-             </div>
           </div>
         </header>
 
-        {/* UPLOAD & CONTROLS */}
         <div className="px-10 py-6">
           <div onClick={() => fileInputRef.current?.click()} className="group h-32 border-2 border-dashed border-slate-800 hover:border-orange-500/40 rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all bg-[#12151a]/20">
             <Upload className="w-8 h-8 text-slate-700 group-hover:text-orange-500 transition-colors mb-2" />
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Select Images or Drag & Drop</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Select Stock Images</p>
             <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleUpload} />
           </div>
         </div>
 
-        <div className="px-10 py-4 flex items-center justify-between bg-[#12151a]/10 border-y border-[#1e2229]">
+        <div className="px-10 py-4 flex items-center justify-between border-y border-[#1e2229]">
           <div className="flex gap-3">
-            <button onClick={clearAll} className="flex items-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all"><Trash2 className="w-4 h-4" /> Clear All</button>
-            <button onClick={exportCSV} disabled={images.filter(i => i.status === 'completed').length === 0} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all disabled:opacity-20"><Download className="w-4 h-4" /> Export Metadata</button>
+            <button onClick={clearAll} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2"><Trash2 className="w-4 h-4" /> Clear</button>
+            <button onClick={exportCSV} disabled={images.filter(i => i.status === 'completed').length === 0} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 disabled:opacity-20"><Download className="w-4 h-4" /> Download CSV</button>
           </div>
           <div className="flex-1 max-w-sm mx-10">
-             <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                <div className="h-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all duration-1000" style={{ width: images.length > 0 ? `${(images.filter(i=>i.status==='completed').length / images.length) * 100}%` : '0%' }} />
+             <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                <div className="h-full bg-orange-500 transition-all duration-700" style={{ width: images.length > 0 ? `${(images.filter(i=>i.status==='completed').length / images.length) * 100}%` : '0%' }} />
              </div>
           </div>
         </div>
 
-        {/* IMAGE GRID */}
         <div className="flex-1 overflow-y-auto p-10 custom-scrollbar space-y-6">
           {images.map(img => (
-            <div key={img.id} className={`bg-[#12151a] border-2 rounded-3xl p-6 flex gap-10 transition-all ${img.status === 'completed' ? 'border-orange-500/10' : 'border-slate-800'} ${img.status === 'error' ? 'border-red-900/30 bg-red-900/5' : ''}`}>
-              <div className="w-48 shrink-0">
-                <div className="relative rounded-2xl overflow-hidden border border-slate-800 aspect-square bg-black shadow-lg">
+            <div key={img.id} className={`bg-[#12151a] border-2 rounded-3xl p-6 flex gap-10 transition-all ${img.status === 'completed' ? 'border-orange-500/10' : 'border-slate-800'} ${img.status === 'error' ? 'border-red-900/30' : ''}`}>
+              <div className="w-44 shrink-0">
+                <div className="relative rounded-2xl overflow-hidden border border-slate-800 aspect-square bg-black">
                   <img src={img.previewUrl} className="w-full h-full object-contain" alt="Preview" />
                   {img.status === 'processing' && (<div className="absolute inset-0 bg-black/80 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-orange-500 animate-spin" /></div>)}
                 </div>
-                <p className="mt-3 text-[9px] font-mono text-slate-600 truncate text-center">{img.file.name}</p>
                 {img.error && (
                   <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <ZapOff className="w-3.5 h-3.5 text-red-500 shrink-0" />
                     <p className="text-[9px] text-red-400 font-bold leading-tight">{img.error}</p>
                   </div>
                 )}
               </div>
               
-              <div className="flex-1 flex flex-col gap-5">
+              <div className="flex-1 flex flex-col gap-4">
                 <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Generated Title</label>
-                    <button onClick={() => navigator.clipboard.writeText(img.seoData?.title || '')} className="p-1.5 hover:bg-slate-800 rounded-lg text-orange-500 transition-all"><Copy className="w-3.5 h-3.5" /></button>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Optimized Title</label>
+                    <button onClick={() => navigator.clipboard.writeText(img.seoData?.title || '')} className="text-orange-500 hover:text-orange-400"><Copy className="w-3.5 h-3.5" /></button>
                   </div>
-                  <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-4 text-sm text-slate-300 font-medium">
-                    {img.seoData?.title || (img.status === 'processing' ? 'Vision AI is analyzing...' : 'Waiting to start...')}
+                  <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-4 text-sm text-slate-300 min-h-[50px]">
+                    {img.seoData?.title || (img.status === 'processing' ? 'Thinking...' : '')}
                   </div>
                 </div>
                 
                 <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Optimized Keywords ({img.seoData?.keywords.length || 0})</label>
-                    <button onClick={() => navigator.clipboard.writeText(img.seoData?.keywords.join(', ') || '')} className="p-1.5 hover:bg-slate-800 rounded-lg text-orange-500 transition-all"><Copy className="w-3.5 h-3.5" /></button>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Stock Keywords ({img.seoData?.keywords.length || 0})</label>
+                    <button onClick={() => navigator.clipboard.writeText(img.seoData?.keywords.join(', ') || '')} className="text-orange-500 hover:text-orange-400"><Copy className="w-3.5 h-3.5" /></button>
                   </div>
-                  <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-4 text-xs text-slate-400 min-h-[60px] leading-loose">
-                    {img.seoData?.keywords.join(', ') || (img.status === 'processing' ? 'Extracting visual tags...' : '')}
+                  <div className="bg-[#0a0c0f] border border-slate-800 rounded-xl p-4 text-xs text-slate-400 min-h-[60px] leading-relaxed">
+                    {img.seoData?.keywords.join(', ') || (img.status === 'processing' ? 'Extracting tags...' : '')}
                   </div>
-                  {(img.status === 'completed' || img.status === 'error') && (
-                    <button onClick={() => processSingle(img.id)} className="mt-3 text-[10px] font-black text-slate-500 hover:text-orange-500 flex items-center gap-2 transition-all uppercase">
-                      <RefreshCw className="w-3 h-3" /> Re-Analyze
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
           ))}
           {images.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center py-32 opacity-10 select-none grayscale">
+            <div className="h-full flex flex-col items-center justify-center py-32 opacity-10 select-none">
                <BrainCircuit className="w-40 h-40 mb-6" />
-               <p className="text-3xl font-black italic tracking-tighter">SEO VISION WORKSPACE</p>
-               <p className="text-[10px] font-black text-slate-500 mt-2 uppercase tracking-[0.3em]">Multi-Key Parallel Processing Ready</p>
+               <p className="text-3xl font-black italic">DRAG IMAGES TO BEGIN</p>
             </div>
           )}
         </div>
       </main>
 
-      {/* MULTI-KEY SETTINGS MODAL */}
+      {/* SETTINGS */}
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/95 backdrop-blur-xl">
-          <div className="bg-[#12151a] border border-slate-800 w-full max-w-xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col">
+          <div className="bg-[#12151a] border border-slate-800 w-full max-w-3xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col">
             <div className="p-8 border-b border-slate-800 flex items-center justify-between bg-[#16191e]">
               <div className="flex items-center gap-4">
                 <Key className="w-6 h-6 text-orange-500" />
-                <h2 className="text-xl font-black text-white uppercase tracking-tight">API Key Manager</h2>
+                <h2 className="text-xl font-black text-white uppercase tracking-tight">AI Key Manager (Auto-Rotation)</h2>
               </div>
               <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-all text-slate-500 hover:text-white"><X className="w-7 h-7" /></button>
             </div>
 
-            <div className="p-10 space-y-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
-              <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                Add multiple API keys separated by <span className="text-orange-500 font-bold">commas (,)</span> or <span className="text-orange-500 font-bold">new lines</span>. The system will automatically switch keys if one hits a rate limit or fails.
-              </p>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-orange-500/10 rounded-lg"><Cpu className="w-4 h-4 text-orange-500" /></div>
-                   <h3 className="text-[11px] font-black text-slate-300 uppercase tracking-widest">Groq Vision Keys</h3>
-                </div>
-                <textarea 
-                  placeholder="Paste multiple Groq keys here..."
-                  value={appSettings.keys.groq.join('\n')}
-                  onChange={(e) => setAppSettings({ ...appSettings, keys: { ...appSettings.keys, groq: e.target.value.split(/[\n,]+/).filter(k => k.trim()) } })}
-                  className="w-full bg-[#0d0f12] border border-slate-800 rounded-2xl p-5 text-sm text-slate-400 focus:border-orange-500 outline-none transition-all min-h-[120px] font-mono"
-                />
-              </section>
-
-              <section className="space-y-4 pt-4 border-t border-slate-800/50">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-blue-500/10 rounded-lg"><Globe className="w-4 h-4 text-blue-500" /></div>
-                   <h3 className="text-[11px] font-black text-slate-300 uppercase tracking-widest">OpenAI GPT-4o Keys</h3>
-                </div>
-                <textarea 
-                  placeholder="Paste multiple OpenAI keys here..."
-                  value={appSettings.keys.openai.join('\n')}
-                  onChange={(e) => setAppSettings({ ...appSettings, keys: { ...appSettings.keys, openai: e.target.value.split(/[\n,]+/).filter(k => k.trim()) } })}
-                  className="w-full bg-[#0d0f12] border border-slate-800 rounded-2xl p-5 text-sm text-slate-400 focus:border-orange-500 outline-none transition-all min-h-[120px] font-mono"
-                />
-              </section>
+            <div className="p-10 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              <div className="grid grid-cols-2 gap-8">
+                {[
+                  { id: 'groq', name: 'Groq (Llama)', icon: Cpu, color: 'text-orange-500' },
+                  { id: 'gemini', name: 'Google Gemini', icon: Sparkles, color: 'text-blue-400' },
+                  { id: 'openai', name: 'OpenAI (GPT)', icon: Globe, color: 'text-green-400' },
+                  { id: 'deepseek', name: 'DeepSeek', icon: ShieldCheck, color: 'text-purple-400' },
+                  { id: 'openrouter', name: 'OpenRouter (Omni)', icon: Zap, color: 'text-yellow-400' },
+                ].map(prov => (
+                  <div key={prov.id} className="space-y-3">
+                    <div className="flex items-center gap-2">
+                       <prov.icon className={`w-4 h-4 ${prov.color}`} />
+                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{prov.name}</h3>
+                    </div>
+                    <textarea 
+                      placeholder={`Keys separated by commas...`}
+                      value={appSettings.keys[prov.id as keyof AppSettings['keys']].join('\n')}
+                      onChange={(e) => setAppSettings({ 
+                        ...appSettings, 
+                        keys: { ...appSettings.keys, [prov.id]: e.target.value.split(/[\n,]+/).filter(k => k.trim()) } 
+                      })}
+                      className="w-full bg-[#0d0f12] border border-slate-800 rounded-2xl p-4 text-xs text-slate-500 focus:border-orange-500 outline-none transition-all min-h-[100px] font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="p-8 border-t border-slate-800 bg-[#16191e] flex justify-center">
-              <button onClick={() => setIsSettingsOpen(false)} className="bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-[0.2em] px-12 py-5 rounded-2xl shadow-xl transition-all active:scale-95">
-                 Lock & Activate Keys
+              <button onClick={() => setIsSettingsOpen(false)} className="bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-[0.2em] px-16 py-5 rounded-2xl shadow-xl transition-all active:scale-95">
+                 Activate All Providers
               </button>
             </div>
           </div>

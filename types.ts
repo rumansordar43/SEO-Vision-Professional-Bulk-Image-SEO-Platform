@@ -7,12 +7,16 @@ export interface SEOData {
 
 export type ExportPlatform = 'Generic' | 'Shutterstock' | 'Adobe Stock' | 'Freepik' | 'Vecteezy' | 'Pond5';
 
-// Simplified model list for internal logic
+export type AIProvider = 'groq' | 'openai' | 'gemini' | 'deepseek' | 'openrouter';
+
 export type AIModel = 
   | 'llama-3.2-90b-vision-preview'
   | 'llama-3.2-11b-vision-preview'
+  | 'gpt-4o-mini'
   | 'gpt-4o'
-  | 'gpt-4o-mini';
+  | 'gemini-2.0-flash'
+  | 'deepseek-chat'
+  | 'google/gemini-2.0-flash-001';
 
 export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; description: boolean; keywords: boolean }> = {
   'Generic': { title: true, description: true, keywords: true },
@@ -25,8 +29,11 @@ export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; descripti
 
 export interface AppSettings {
   keys: {
-    groq: string[]; // Supports multiple keys
-    openai: string[]; // Supports multiple keys
+    groq: string[];
+    openai: string[];
+    gemini: string[];
+    deepseek: string[];
+    openrouter: string[];
   };
 }
 
