@@ -19,6 +19,7 @@ export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; descripti
 };
 
 export interface AppSettings {
+  useProxy: boolean;
   keys: {
     groq: string[];
     openai: string[];

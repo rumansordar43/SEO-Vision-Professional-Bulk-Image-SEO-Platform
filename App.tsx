@@ -4,7 +4,7 @@ import {
   Upload, Trash2, Download, Zap, 
   X, Copy, RefreshCw, Settings, Sliders, 
   Sparkles, BrainCircuit,
-  Cpu, Globe, ShieldCheck, AlertCircle, Key, ZapOff
+  Cpu, Globe, ShieldCheck, AlertCircle, Key, ZapOff, Server
 } from 'lucide-react';
 import { OptimizedImage, StockConstraints, ProcessingStatus, SEOData, ExportPlatform, PLATFORM_FIELDS, AppSettings } from './types';
 import { analyzeImageWithAI } from './services/aiService';
@@ -25,7 +25,12 @@ const App: React.FC = () => {
   
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('seo_vision_settings_v5');
-    return saved ? JSON.parse(saved) : {
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return { ...parsed, useProxy: parsed.useProxy ?? true };
+    }
+    return {
+      useProxy: true,
       keys: { groq: [], openai: [], gemini: [], deepseek: [], openrouter: [] }
     };
   });
@@ -206,9 +211,16 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-black text-white flex items-center gap-4">
               Visual AI Console <span className="text-[10px] bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 font-bold uppercase tracking-widest">Multi-Provider Mode</span>
             </h2>
-            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-2">
-              Ready with <span className="text-white">{totalKeys}</span> active keys across 5 AI providers
-            </p>
+            <div className="flex items-center gap-4 mt-2">
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">
+                Ready with <span className="text-white">{totalKeys}</span> active keys
+              </p>
+              {appSettings.useProxy && (
+                <span className="flex items-center gap-1.5 text-[10px] text-green-500 font-bold uppercase tracking-widest">
+                  <Server className="w-3 h-3" /> CORS Proxy: Active
+                </span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -293,6 +305,21 @@ const App: React.FC = () => {
             </div>
 
             <div className="p-10 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {/* PROXY SETTING */}
+              <div className="p-6 bg-orange-500/5 border border-orange-500/20 rounded-3xl flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <Server className="w-6 h-6 text-orange-500" />
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">CORS Bypass (Server Proxy)</h3>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Simulates server-side requests to fix browser CORS errors (Groq/OpenAI)</p>
+                  </div>
+                </div>
+                <Switch 
+                  checked={appSettings.useProxy} 
+                  onChange={(v) => setAppSettings({ ...appSettings, useProxy: v })} 
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-8">
                 {[
                   { id: 'groq', name: 'Groq (Llama)', icon: Cpu, color: 'text-orange-500' },

@@ -3,8 +3,8 @@ import { SEOData, StockConstraints, PLATFORM_FIELDS, AppSettings, AIProvider } f
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Optimized Multi-Provider Vision Engine
- * PRIORITY: Groq (High Speed/Rate Limit) -> Gemini -> OpenAI
+ * Intelligent Multi-Provider Vision Engine
+ * Enhanced with CORS Proxy support for Groq/OpenAI in browser environments.
  */
 export const analyzeImageWithAI = async (
   base64Data: string,
@@ -13,16 +13,14 @@ export const analyzeImageWithAI = async (
   settings: AppSettings
 ): Promise<SEOData> => {
   
-  // Updated Strategy: Groq is now the primary provider.
   const strategy: { model: string, provider: AIProvider }[] = [
-    { model: 'llama-3.2-90b-vision-preview', provider: 'groq' }, // Highest quality Groq Vision
-    { model: 'llama-3.2-11b-vision-preview', provider: 'groq' }, // Fastest Groq Vision
-    { model: 'gemini-2.0-flash', provider: 'gemini' },           // High reliability fallback
+    { model: 'llama-3.2-90b-vision-preview', provider: 'groq' }, // Primary
+    { model: 'gemini-2.0-flash', provider: 'gemini' },           // Fallback
     { model: 'gpt-4o-mini', provider: 'openai' },
     { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' }
   ];
 
-  let lastError: string = "No active API keys found.";
+  let detailedLogs: string[] = [];
 
   for (const step of strategy) {
     const keys = settings.keys[step.provider];
@@ -34,20 +32,18 @@ export const analyzeImageWithAI = async (
 
       const requiredFields = PLATFORM_FIELDS[constraints.selectedPlatform];
       const promptText = `
-        Role: Stock Photography SEO Expert.
-        Target Platform: ${constraints.selectedPlatform}.
-        Asset Type: ${constraints.imageType}.
+        Analyze this stock ${constraints.imageType} for ${constraints.selectedPlatform}.
+        Return ONLY valid JSON.
+        Required: 
+        - Title (50-100 chars)
+        - Keywords (exactly ${constraints.keywordCount})
+        - Description (if needed)
+        Exclude: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
         
-        Constraints:
-        - Title: Exactly between 50-100 characters.
-        - Keywords: Exactly ${constraints.keywordCount} tags.
-        - Exclusions: ${constraints.negKeywordsEnabled ? constraints.negKeywords : 'none'}.
-        
-        Task: Analyze the image and provide high-converting metadata in JSON format.
-        JSON Schema:
+        Format:
         {
           "title": "string",
-          ${requiredFields.description ? '"description": "string (brief context)",' : ''}
+          ${requiredFields.description ? '"description": "string",' : ''}
           "keywords": ["tag1", "tag2", ...]
         }
       `;
@@ -56,7 +52,7 @@ export const analyzeImageWithAI = async (
         let rawContent = "";
 
         if (step.provider === 'gemini') {
-          // Gemini SDK handles parts correctly for vision
+          // Gemini SDK doesn't need proxy as it has better browser CORS config
           const ai = new GoogleGenAI({ apiKey: trimmedKey });
           const response = await ai.models.generateContent({
             model: step.model,
@@ -66,27 +62,31 @@ export const analyzeImageWithAI = async (
                 { inlineData: { mimeType, data: base64Data } }
               ]
             },
-            config: { 
-              responseMimeType: "application/json",
-              temperature: 0.1
-            }
+            config: { responseMimeType: "application/json", temperature: 0.1 }
           });
-          
           rawContent = response.text || "";
         } else {
-          // Standard OpenAI-compatible fetch (Groq/OpenAI/OpenRouter)
-          const endpoints: Record<string, string> = {
+          // OpenAI-compatible providers (Groq, etc.)
+          const baseEndpoints: Record<string, string> = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
             openrouter: "https://openrouter.ai/api/v1/chat/completions"
           };
 
-          const response = await fetch(endpoints[step.provider], {
+          let url = baseEndpoints[step.provider];
+          
+          // Apply CORS Proxy if enabled and not already handled by Gemini
+          if (settings.useProxy) {
+            // Using corsproxy.io as a reliable public wrapper
+            url = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+          }
+
+          const response = await fetch(url, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${trimmedKey}`,
               "Content-Type": "application/json",
-              ...(step.provider === 'openrouter' ? { "HTTP-Referer": window.location.origin, "X-Title": "SEO Vision Pro" } : {})
+              ...(step.provider === 'openrouter' ? { "HTTP-Referer": window.location.origin } : {})
             },
             body: JSON.stringify({
               model: step.model,
@@ -106,7 +106,6 @@ export const analyzeImageWithAI = async (
 
           if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            // If CORS error happens, fetch will fail before reaching here
             throw new Error(errData.error?.message || `HTTP ${response.status}`);
           }
 
@@ -114,9 +113,8 @@ export const analyzeImageWithAI = async (
           rawContent = result.choices[0].message.content;
         }
 
-        if (!rawContent) throw new Error("Empty response");
+        if (!rawContent) throw new Error("Empty AI Response");
 
-        // Extract JSON from potential markdown wrapping
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
         const cleanedJson = jsonMatch ? jsonMatch[0] : rawContent;
         const data = JSON.parse(cleanedJson) as SEOData;
@@ -124,30 +122,23 @@ export const analyzeImageWithAI = async (
         return applyPostProcessing(data, constraints);
 
       } catch (err: any) {
-        lastError = `${step.provider.toUpperCase()} (${step.model}): ${err.message}`;
-        console.warn(`Fallback triggered: ${lastError}`);
-        // If it's a CORS error, err.message is usually "Failed to fetch"
+        let errorMsg = err.message;
+        detailedLogs.push(`${step.provider.toUpperCase()}: ${errorMsg}`);
+        console.warn(`Attempt failed: ${step.provider}`, errorMsg);
         continue; 
       }
     }
   }
 
-  throw new Error(`Automation Stalled: ${lastError}. Suggestion: If Groq fails with 'Failed to fetch', it is likely a CORS restriction in the browser.`);
+  throw new Error(`Automation Stalled. Logs: ${detailedLogs.join(' | ')}`);
 };
 
 const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOData => {
   let title = (data.title || "").trim();
-  
-  // Title cleaning & limits
-  if (title.length > constraints.maxTitleChars) {
-    title = title.substring(0, constraints.maxTitleChars).trim();
-  }
-
-  // Prefix/Suffix application
+  if (title.length > constraints.maxTitleChars) title = title.substring(0, constraints.maxTitleChars).trim();
   if (constraints.prefixEnabled && constraints.prefix) title = `${constraints.prefix.trim()} ${title}`;
   if (constraints.suffixEnabled && constraints.suffix) title = `${title} ${constraints.suffix.trim()}`;
 
-  // Keywords formatting: unique, lowercase, trimmed
   let keywords = Array.from(new Set(data.keywords || []))
     .map(k => k.trim().toLowerCase())
     .filter(k => k.length > 0)
