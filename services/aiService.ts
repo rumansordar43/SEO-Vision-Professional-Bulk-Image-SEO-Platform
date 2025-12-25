@@ -14,8 +14,8 @@ export const analyzeImageWithAI = async (
 ): Promise<SEOData> => {
   
   const strategy: { model: string, provider: AIProvider }[] = [
-    { model: 'llama-3.2-90b-vision-preview', provider: 'groq' }, // Primary
-    { model: 'gemini-2.0-flash', provider: 'gemini' },           // Fallback
+    { model: 'llama-3.2-11b-vision-preview', provider: 'groq' }, // Updated Groq model (11b is highly stable)
+    { model: 'gemini-3-flash-preview', provider: 'gemini' },      // Updated to Gemini 3 Flash
     { model: 'gpt-4o-mini', provider: 'openai' },
     { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' },
     { model: 'deepseek-chat', provider: 'deepseek' }
@@ -53,7 +53,7 @@ export const analyzeImageWithAI = async (
         let rawContent = "";
 
         if (step.provider === 'gemini') {
-          // Gemini SDK doesn't need proxy usually
+          // Use standard Gemini integration
           const ai = new GoogleGenAI({ apiKey: trimmedKey });
           const response = await ai.models.generateContent({
             model: step.model,
@@ -63,17 +63,20 @@ export const analyzeImageWithAI = async (
                 { inlineData: { mimeType, data: base64Data } }
               ]
             },
-            config: { responseMimeType: "application/json", temperature: 0.1 }
+            config: { 
+              responseMimeType: "application/json", 
+              temperature: 0.1 
+            }
           });
           rawContent = response.text || "";
         } else {
-          // OpenAI-compatible providers (Groq, etc.)
+          // OpenAI-compatible providers (Groq, OpenAI, OpenRouter, DeepSeek)
           const endpoints: Record<AIProvider, string | null> = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
             openrouter: "https://openrouter.ai/api/v1/chat/completions",
             deepseek: "https://api.deepseek.com/chat/completions",
-            gemini: null // Handled above
+            gemini: null 
           };
 
           const targetUrl = endpoints[step.provider];
@@ -102,7 +105,7 @@ export const analyzeImageWithAI = async (
 
           let finalResponse;
 
-          // Route through Private Backend if URL provided
+          // Route through user's Local Proxy Server
           if (settings.useProxy && settings.customBackendUrl) {
             finalResponse = await fetch(settings.customBackendUrl, {
               method: "POST",
@@ -115,7 +118,7 @@ export const analyzeImageWithAI = async (
               })
             });
           } else {
-            // Direct call (Likely to fail in browser for Groq due to CORS)
+            // Direct call (Likely to fail in browser due to CORS)
             finalResponse = await fetch(targetUrl, {
               method: "POST",
               headers,
@@ -149,7 +152,7 @@ export const analyzeImageWithAI = async (
     }
   }
 
-  throw new Error(`Automation Stalled. Check Private Proxy Status. Logs: ${detailedLogs.join(' | ')}`);
+  throw new Error(`Automation Stalled. ${detailedLogs.join(' | ')}`);
 };
 
 const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOData => {
