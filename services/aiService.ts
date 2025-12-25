@@ -17,7 +17,8 @@ export const analyzeImageWithAI = async (
     { model: 'llama-3.2-90b-vision-preview', provider: 'groq' }, // Primary
     { model: 'gemini-2.0-flash', provider: 'gemini' },           // Fallback
     { model: 'gpt-4o-mini', provider: 'openai' },
-    { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' }
+    { model: 'google/gemini-2.0-flash-001', provider: 'openrouter' },
+    { model: 'deepseek-chat', provider: 'deepseek' }
   ];
 
   let detailedLogs: string[] = [];
@@ -67,11 +68,16 @@ export const analyzeImageWithAI = async (
           rawContent = response.text || "";
         } else {
           // OpenAI-compatible providers (Groq, etc.)
-          const targetUrl = {
+          const endpoints: Record<AIProvider, string | null> = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
-            openrouter: "https://openrouter.ai/api/v1/chat/completions"
-          }[step.provider] || "";
+            openrouter: "https://openrouter.ai/api/v1/chat/completions",
+            deepseek: "https://api.deepseek.com/chat/completions",
+            gemini: null // Handled above
+          };
+
+          const targetUrl = endpoints[step.provider];
+          if (!targetUrl) continue;
 
           const payload = {
             model: step.model,
@@ -109,7 +115,7 @@ export const analyzeImageWithAI = async (
               })
             });
           } else {
-            // Direct call (Likely to fail in browser for Groq)
+            // Direct call (Likely to fail in browser for Groq due to CORS)
             finalResponse = await fetch(targetUrl, {
               method: "POST",
               headers,
