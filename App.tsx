@@ -4,7 +4,7 @@ import {
   Upload, Trash2, Download, Zap, 
   X, Copy, RefreshCw, Settings, Sliders, 
   Sparkles, BrainCircuit,
-  Cpu, Globe, ShieldCheck, AlertCircle, Key, ZapOff, Server
+  Cpu, Globe, ShieldCheck, AlertCircle, Key, ZapOff, Server, Link
 } from 'lucide-react';
 import { OptimizedImage, StockConstraints, ProcessingStatus, SEOData, ExportPlatform, PLATFORM_FIELDS, AppSettings } from './types';
 import { analyzeImageWithAI } from './services/aiService';
@@ -24,19 +24,24 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('seo_vision_settings_v5');
+    const saved = localStorage.getItem('seo_vision_settings_v6');
     if (saved) {
       const parsed = JSON.parse(saved);
-      return { ...parsed, useProxy: parsed.useProxy ?? true };
+      return { 
+        ...parsed, 
+        useProxy: parsed.useProxy ?? true,
+        customBackendUrl: parsed.customBackendUrl ?? 'http://localhost:5000/proxy'
+      };
     }
     return {
       useProxy: true,
+      customBackendUrl: 'http://localhost:5000/proxy',
       keys: { groq: [], openai: [], gemini: [], deepseek: [], openrouter: [] }
     };
   });
 
   useEffect(() => {
-    localStorage.setItem('seo_vision_settings_v5', JSON.stringify(appSettings));
+    localStorage.setItem('seo_vision_settings_v6', JSON.stringify(appSettings));
   }, [appSettings]);
 
   const [constraints, setConstraints] = useState<StockConstraints>({
@@ -132,7 +137,7 @@ const App: React.FC = () => {
         <div className="p-6 border-b border-[#1e2229] flex items-center justify-between bg-[#16191e]">
           <div className="flex items-center gap-2">
             <Sparkles className="text-orange-500 w-5 h-5 animate-pulse" />
-            <h1 className="font-black text-xs text-white uppercase tracking-widest">SEO Auto-Pilot V5</h1>
+            <h1 className="font-black text-xs text-white uppercase tracking-widest">SEO Auto-Pilot V6</h1>
           </div>
           <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-slate-700 rounded-xl transition-all relative">
             <Settings className="w-4 h-4 text-slate-400" />
@@ -209,7 +214,7 @@ const App: React.FC = () => {
         <header className="px-10 py-8 border-b border-[#1e2229] bg-[#12151a]/30 flex justify-between items-center">
           <div>
             <h2 className="text-2xl font-black text-white flex items-center gap-4">
-              Visual AI Console <span className="text-[10px] bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 font-bold uppercase tracking-widest">Multi-Provider Mode</span>
+              Visual AI Console <span className="text-[10px] bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 font-bold uppercase tracking-widest">Server-Link Mode</span>
             </h2>
             <div className="flex items-center gap-4 mt-2">
               <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">
@@ -217,7 +222,7 @@ const App: React.FC = () => {
               </p>
               {appSettings.useProxy && (
                 <span className="flex items-center gap-1.5 text-[10px] text-green-500 font-bold uppercase tracking-widest">
-                  <Server className="w-3 h-3" /> CORS Proxy: Active
+                  <Server className="w-3 h-3" /> Private Proxy: Active
                 </span>
               )}
             </div>
@@ -306,18 +311,37 @@ const App: React.FC = () => {
 
             <div className="p-10 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
               {/* PROXY SETTING */}
-              <div className="p-6 bg-orange-500/5 border border-orange-500/20 rounded-3xl flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Server className="w-6 h-6 text-orange-500" />
-                  <div>
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider">CORS Bypass (Server Proxy)</h3>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Simulates server-side requests to fix browser CORS errors (Groq/OpenAI)</p>
+              <div className="p-6 bg-orange-500/5 border border-orange-500/20 rounded-3xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Server className="w-6 h-6 text-orange-500" />
+                    <div>
+                      <h3 className="text-sm font-black text-white uppercase tracking-wider">Server-Side Proxy (Fix CORS)</h3>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Directly bypass browser restrictions by routing through a private server</p>
+                    </div>
                   </div>
+                  <Switch 
+                    checked={appSettings.useProxy} 
+                    onChange={(v) => setAppSettings({ ...appSettings, useProxy: v })} 
+                  />
                 </div>
-                <Switch 
-                  checked={appSettings.useProxy} 
-                  onChange={(v) => setAppSettings({ ...appSettings, useProxy: v })} 
-                />
+                
+                {appSettings.useProxy && (
+                  <div className="pt-4 border-t border-orange-500/10">
+                    <div className="flex items-center gap-2 mb-2">
+                       <Link className="w-3 h-3 text-orange-500" />
+                       <label className="text-[10px] font-black text-slate-400 uppercase">Your Backend Proxy URL</label>
+                    </div>
+                    <input 
+                      type="text"
+                      value={appSettings.customBackendUrl}
+                      onChange={(e) => setAppSettings({ ...appSettings, customBackendUrl: e.target.value })}
+                      placeholder="http://localhost:5000/proxy"
+                      className="w-full bg-[#0d0f12] border border-slate-800 rounded-xl px-4 py-3 text-xs text-orange-400 outline-none focus:border-orange-500 font-mono"
+                    />
+                    <p className="text-[9px] text-slate-600 mt-2 font-medium">Tip: Use `http://localhost:5000/proxy` if running your own local Node.js script.</p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-8">
@@ -349,7 +373,7 @@ const App: React.FC = () => {
 
             <div className="p-8 border-t border-slate-800 bg-[#16191e] flex justify-center">
               <button onClick={() => setIsSettingsOpen(false)} className="bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-[0.2em] px-16 py-5 rounded-2xl shadow-xl transition-all active:scale-95">
-                 Activate All Providers
+                 Save & Re-Connect
               </button>
             </div>
           </div>

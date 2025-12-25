@@ -4,7 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 
 /**
  * Intelligent Multi-Provider Vision Engine
- * Enhanced with CORS Proxy support for Groq/OpenAI in browser environments.
+ * Full Server-Side Proxy Support to bypass browser CORS restrictions.
  */
 export const analyzeImageWithAI = async (
   base64Data: string,
@@ -52,7 +52,7 @@ export const analyzeImageWithAI = async (
         let rawContent = "";
 
         if (step.provider === 'gemini') {
-          // Gemini SDK doesn't need proxy as it has better browser CORS config
+          // Gemini SDK doesn't need proxy usually
           const ai = new GoogleGenAI({ apiKey: trimmedKey });
           const response = await ai.models.generateContent({
             model: step.model,
@@ -67,49 +67,62 @@ export const analyzeImageWithAI = async (
           rawContent = response.text || "";
         } else {
           // OpenAI-compatible providers (Groq, etc.)
-          const baseEndpoints: Record<string, string> = {
+          const targetUrl = {
             groq: "https://api.groq.com/openai/v1/chat/completions",
             openai: "https://api.openai.com/v1/chat/completions",
             openrouter: "https://openrouter.ai/api/v1/chat/completions"
+          }[step.provider] || "";
+
+          const payload = {
+            model: step.model,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: promptText },
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                ]
+              }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.1
           };
 
-          let url = baseEndpoints[step.provider];
-          
-          // Apply CORS Proxy if enabled and not already handled by Gemini
-          if (settings.useProxy) {
-            // Using corsproxy.io as a reliable public wrapper
-            url = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+          const headers: Record<string, string> = {
+            "Authorization": `Bearer ${trimmedKey}`,
+            "Content-Type": "application/json",
+            ...(step.provider === 'openrouter' ? { "HTTP-Referer": window.location.origin } : {})
+          };
+
+          let finalResponse;
+
+          // Route through Private Backend if URL provided
+          if (settings.useProxy && settings.customBackendUrl) {
+            finalResponse = await fetch(settings.customBackendUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url: targetUrl,
+                method: "POST",
+                headers,
+                body: payload
+              })
+            });
+          } else {
+            // Direct call (Likely to fail in browser for Groq)
+            finalResponse = await fetch(targetUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(payload)
+            });
           }
 
-          const response = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${trimmedKey}`,
-              "Content-Type": "application/json",
-              ...(step.provider === 'openrouter' ? { "HTTP-Referer": window.location.origin } : {})
-            },
-            body: JSON.stringify({
-              model: step.model,
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "text", text: promptText },
-                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
-                  ]
-                }
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.1
-            })
-          });
-
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error?.message || `HTTP ${response.status}`);
+          if (!finalResponse.ok) {
+            const errData = await finalResponse.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `HTTP ${finalResponse.status}`);
           }
 
-          const result = await response.json();
+          const result = await finalResponse.json();
           rawContent = result.choices[0].message.content;
         }
 
@@ -130,7 +143,7 @@ export const analyzeImageWithAI = async (
     }
   }
 
-  throw new Error(`Automation Stalled. Logs: ${detailedLogs.join(' | ')}`);
+  throw new Error(`Automation Stalled. Check Private Proxy Status. Logs: ${detailedLogs.join(' | ')}`);
 };
 
 const applyPostProcessing = (data: SEOData, constraints: StockConstraints): SEOData => {

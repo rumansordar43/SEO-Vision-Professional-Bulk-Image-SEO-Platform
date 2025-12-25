@@ -20,6 +20,7 @@ export const PLATFORM_FIELDS: Record<ExportPlatform, { title: boolean; descripti
 
 export interface AppSettings {
   useProxy: boolean;
+  customBackendUrl: string; // New field for local backend
   keys: {
     groq: string[];
     openai: string[];
